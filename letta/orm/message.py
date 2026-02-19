@@ -121,6 +121,13 @@ class Message(SqlalchemyBase, OrganizationMixin, AgentMixin):
 
 @event.listens_for(Session, "before_flush")
 def set_sequence_id_for_sqlite_bulk(session, flush_context, instances):
+    """
+    Manually manages sequence IDs for bulk message inserts in SQLite.
+
+    SQLite does not support sequences natively in the same way as PostgreSQL.
+    This listener intercepts bulk inserts, creates/updates a simulation table
+    (`message_sequence`), and atomically assigns sequential IDs to new messages.
+    """
     # Handle bulk inserts for SQLite
     if settings.database_engine is DatabaseChoice.SQLITE:
         # Find all new Message objects that need sequence IDs
@@ -195,6 +202,12 @@ def set_sequence_id_for_sqlite_bulk(session, flush_context, instances):
 
 @event.listens_for(Message, "before_insert")
 def set_sequence_id_for_sqlite(mapper, connection, target):
+    """
+    Manually manages sequence IDs for single message inserts in SQLite.
+
+    Similar to `set_sequence_id_for_sqlite_bulk`, this handles single record insertions
+    by atomically checking and incrementing the `message_sequence` table.
+    """
     if settings.database_engine is DatabaseChoice.SQLITE:
         # For SQLite, we need to generate sequence_id manually
         # Use a database-level atomic operation to avoid race conditions

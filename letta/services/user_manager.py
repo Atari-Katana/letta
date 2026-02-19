@@ -27,7 +27,18 @@ class UserManager:
     @enforce_types
     @trace_method
     async def create_default_actor_async(self, org_id: str = DEFAULT_ORG_ID) -> PydanticUser:
-        """Create the default user."""
+        """
+        Creates a default user for the specified organization if one doesn't exist.
+
+        Args:
+            org_id (str): The organization ID to create the user for. Defaults to DEFAULT_ORG_ID.
+
+        Returns:
+            PydanticUser: The created or existing default user.
+
+        Raises:
+            ValueError: If the organization does not exist.
+        """
         async with db_registry.async_session() as session:
             # Make sure the org id exists
             try:
@@ -49,7 +60,15 @@ class UserManager:
     @enforce_types
     @trace_method
     async def create_actor_async(self, pydantic_user: PydanticUser) -> PydanticUser:
-        """Create a new user if it doesn't already exist (async version)."""
+        """
+        Asynchronously creates a new user.
+
+        Args:
+            pydantic_user (PydanticUser): The user data to create.
+
+        Returns:
+            PydanticUser: The created user.
+        """
         async with db_registry.async_session() as session:
             new_user = UserModel(**pydantic_user.model_dump(to_orm=True))
             await new_user.create_async(session)
@@ -59,7 +78,18 @@ class UserManager:
     @enforce_types
     @trace_method
     async def update_actor_async(self, user_update: UserUpdate) -> PydanticUser:
-        """Update user details (async version). Raises NoResultFound if not found."""
+        """
+        Asynchronously updates an existing user.
+
+        Args:
+            user_update (UserUpdate): The user update data, including the ID of the user to update.
+
+        Returns:
+            PydanticUser: The updated user.
+
+        Raises:
+            NoResultFound: If the user does not exist.
+        """
         async with db_registry.async_session() as session:
             # Retrieve the existing user by ID
             existing_user = await UserModel.read_async(db_session=session, identifier=user_update.id)
@@ -77,7 +107,15 @@ class UserManager:
     @enforce_types
     @trace_method
     async def delete_actor_by_id_async(self, user_id: str):
-        """Delete a user and their associated records (agents, sources, mappings) asynchronously. Raises NoResultFound if not found."""
+        """
+        Asynchronously deletes a user and their associated records.
+
+        Args:
+            user_id (str): The ID of the user to delete.
+
+        Raises:
+            NoResultFound: If the user does not exist.
+        """
         async with db_registry.async_session() as session:
             # Delete from user table
             user = await UserModel.read_async(db_session=session, identifier=user_id)
@@ -88,7 +126,18 @@ class UserManager:
     @trace_method
     @async_redis_cache(key_func=lambda self, actor_id: f"actor_id:{actor_id}", model_class=PydanticUser)
     async def get_actor_by_id_async(self, actor_id: str) -> PydanticUser:
-        """Fetch a user by ID asynchronously."""
+        """
+        Asynchronously fetches a user by ID.
+
+        Args:
+            actor_id (str): The ID of the user to fetch.
+
+        Returns:
+            PydanticUser: The fetched user.
+
+        Raises:
+            NoResultFound: If the user does not exist.
+        """
         async with db_registry.async_session() as session:
             stmt = select(UserModel).where(UserModel.id == actor_id)
             result = await session.execute(stmt)
@@ -111,13 +160,17 @@ class UserManager:
     @enforce_types
     @trace_method
     async def get_actor_or_default_async(self, actor_id: Optional[str] = None):
-        """Fetch the user or default user asynchronously.
+        """
+        Fetches the user or default user asynchronously.
 
         Args:
-            actor_id: The actor ID to fetch. If None and no_default_actor is True, raises NoResultFound.
+            actor_id (Optional[str]): The actor ID to fetch. If None, tries to fetch the default user.
+
+        Returns:
+            PydanticUser: The fetched user.
 
         Raises:
-            NoResultFound: If actor_id is None and no_default_actor setting is True.
+            NoResultFound: If actor_id is None and `no_default_actor` setting is True.
         """
         # Security check: if no_default_actor is enabled and actor_id is None, raise error
         if settings.no_default_actor and (actor_id is None or actor_id == self.DEFAULT_USER_ID):
@@ -137,7 +190,16 @@ class UserManager:
     @enforce_types
     @trace_method
     async def list_actors_async(self, after: Optional[str] = None, limit: Optional[int] = 50) -> List[PydanticUser]:
-        """List all users with optional pagination (async version)."""
+        """
+        Lists all users with optional pagination.
+
+        Args:
+            after (Optional[str]): The ID to list after (for pagination).
+            limit (Optional[int]): The maximum number of users to return. Defaults to 50.
+
+        Returns:
+            List[PydanticUser]: A list of users.
+        """
         async with db_registry.async_session() as session:
             users = await UserModel.list_async(
                 db_session=session,

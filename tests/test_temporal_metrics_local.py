@@ -8,7 +8,6 @@ import os
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from letta.agents.temporal.metrics import (
     ActivityMetrics,
     TemporalMetrics,

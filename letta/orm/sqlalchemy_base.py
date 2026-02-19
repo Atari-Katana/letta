@@ -209,7 +209,37 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
         **kwargs,
     ):
         """
-        Constructs the query for listing records.
+        Constructs the SQLAlchemy select query for listing records based on provided filters.
+
+        This method handles:
+        - Organization/User scoping via `actor` and `access_type`.
+        - Pagination using text or embedding search.
+        - Filtering by date range (`start_date`, `end_date`).
+        - Keyword argument filtering for specific columns or JSON fields.
+        - Sorting options (`ascending`, `query_text`, `query_embedding`).
+
+        Args:
+            before_obj: Object cursor for 'before' pagination.
+            after_obj: Object cursor for 'after' pagination.
+            start_date: Filter for records created after this date.
+            end_date: Filter for records created before this date.
+            limit: Maximum number of records to return.
+            query_text: Text for full-text search (if supported by model).
+            query_embedding: Vector for similarity search (if supported by model).
+            ascending: Sort order (True for ascending, False for descending).
+            actor: User performing the request (for permission scoping).
+            access: Required access level.
+            access_type: Type of access control (Organization or User).
+            join_model: Optional model to join for filtering.
+            join_conditions: Conditions for the join.
+            identifier_keys: Keys to filter by identity.
+            identity_id: ID of the identity to filter by.
+            check_is_deleted: Whether to exclude soft-deleted records.
+            has_feedback: Filter by presence/absence of feedback.
+            **kwargs: Additional column-specific filters.
+
+        Returns:
+            sqlalchemy.sql.Select: The constructed SQLAlchemy query object.
         """
         # Security check: if the model has organization_id column, actor should be provided
         if actor is None and hasattr(cls, "organization_id"):
@@ -653,7 +683,28 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
     async def update_async(
         self, db_session: "AsyncSession", actor: Optional["User"] = None, no_commit: bool = False, no_refresh: bool = False
     ) -> "SqlalchemyBase":
-        """Async version of update function"""
+        """
+        Asynchronously updates the current record in the database.
+
+        This method:
+        1. Sets the `updated_by` field if an actor is provided.
+        2. Updates the `updated_at` timestamp.
+        3. Commits the changes to the database (unless `no_commit` is True).
+        4. Refreshes the object state from the database (unless `no_refresh` is True).
+
+        Args:
+            db_session: The async database session.
+            actor: The user performing the update.
+            no_commit: If True, skips the commit step (useful for batch operations).
+            no_refresh: If True, skips refreshing the object after update.
+
+        Returns:
+            SqlalchemyBase: The updated model instance.
+
+        Raises:
+            ConcurrentUpdateError: If the record was modified concurrently.
+            DBAPIError: For other database errors.
+        """
         logger.debug(f"Updating {self.__class__.__name__} with ID: {self.id} with actor={actor}")
 
         if actor:
@@ -771,16 +822,21 @@ class SqlalchemyBase(CommonSqlalchemyMetaMixins, Base):
         access: List[Literal["read", "write", "admin"]],
         access_type: AccessType = AccessType.ORGANIZATION,
     ) -> "Select":
-        """applies a WHERE clause restricting results to the given actor and access level
+        """
+        Applies a WHERE clause to restrict query results based on the actor's permissions.
+
         Args:
-            query: The initial sqlalchemy select statement
-            actor: The user acting on the query. **Note**: this is called 'actor' to identify the
-                   person or system acting. Users can act on users, making naming very sticky otherwise.
-            access:
-                what mode of access should the query restrict to? This will be used with granular permissions,
-                but because of how it will impact every query we want to be explicitly calling access ahead of time.
+            query: The initial SQLAlchemy Select statement.
+            actor: The user acting on the query.
+            access: The list of required access levels (e.g., ["read"]).
+                    (Note: Currently not fully utilized for granular row-level permissions).
+            access_type: The scope of access control (ORGANIZATION or USER).
+
         Returns:
-            the sqlalchemy select statement restricted to the given access.
+            Select: The SQLAlchemy Select statement restricted to the given access scope.
+
+        Raises:
+            ValueError: If the actor lacks the necessary accessor (organization_id or id) for the requested access type.
         """
         del access  # entrypoint for row-level permissions. Defaults to "same org as the actor, all permissions" at the moment
         if access_type == AccessType.ORGANIZATION:

@@ -1,5 +1,10 @@
 import logging
 import os
+
+# Set DB URI to Postgres for testing
+if "LETTA_PG_URI" not in os.environ:
+    os.environ["LETTA_PG_URI"] = "postgresql+pg8000://letta:letta@localhost:5432/letta"
+
 import threading
 import time
 from datetime import datetime, timezone

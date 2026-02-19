@@ -397,7 +397,11 @@ def load_function_set(module: ModuleType) -> dict:
 
         # Check if it's a callable function and not a built-in or special method
         if inspect.isfunction(attr) and attr.__module__ == module.__name__:
+            if attr_name.startswith("_"):
+                continue
+
             if attr_name in function_dict:
+
                 raise ValueError(f"Found a duplicate of function name '{attr_name}'")
 
             generated_schema = generate_schema(attr)

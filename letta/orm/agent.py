@@ -310,6 +310,15 @@ class Agent(SqlalchemyBase, OrganizationMixin, ProjectMixin, TemplateEntityMixin
         return self.__pydantic_model__(**state)
 
     async def _get_pending_approval_async(self) -> Optional[Any]:
+        """
+        Retrieves the latest pending approval request message, if any.
+
+        Checks the agent's message history for the most recent message. If it is an
+        'approval' role message with tool calls, it is considered a pending request.
+
+        Returns:
+            Optional[Any]: The converted approval request message, or None if no pending approval found.
+        """
         if self.message_ids and len(self.message_ids) > 0:
             # Try to get the async session this object is attached to
             session = async_object_session(self)

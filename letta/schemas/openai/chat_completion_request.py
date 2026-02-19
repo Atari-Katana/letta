@@ -80,7 +80,7 @@ class FunctionCall(BaseModel):
 class ToolFunctionChoice(BaseModel):
     # The type of the tool. Currently, only function is supported
     type: Literal["function"] = "function"
-    # type: str = Field(default="function", const=True)
+    # _type: str = Field(default="function", const=True)
     function: FunctionCall
 
 
@@ -116,7 +116,7 @@ class FunctionSchema(BaseModel):
 class Tool(BaseModel):
     # The type of the tool. Currently, only function is supported
     type: Literal["function"] = "function"
-    # type: str = Field(default="function", const=True)
+    # _type: str = Field(default="function", const=True)
     function: FunctionSchema
 
 

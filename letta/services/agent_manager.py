@@ -73,7 +73,7 @@ from letta.schemas.secret import Secret
 from letta.schemas.source import Source as PydanticSource
 from letta.schemas.tool import Tool as PydanticTool
 from letta.schemas.tool_rule import ContinueToolRule, RequiresApprovalToolRule, TerminalToolRule
-from letta.schemas.user import User as PydanticUser
+from letta.schemas.user import User as PydanticUser, User
 from letta.serialize_schemas import MarshmallowAgentSchema
 from letta.serialize_schemas.marshmallow_message import SerializedMessageSchema
 from letta.serialize_schemas.marshmallow_tool import SerializedToolSchema
@@ -235,6 +235,17 @@ class AgentManager:
 
     @staticmethod
     def _bulk_insert_pivot(session, table, rows: list[dict]):
+        """
+        Efficiently inserts multiple rows into a pivot/association table.
+
+        Handles dialect-specific syntax for "INSERT OR IGNORE" (SQLite) or
+        "ON CONFLICT DO NOTHING" (Postgres) to avoid primary key collisions.
+
+        Args:
+            session: The SQLAlchemy database session.
+            table: The SQLAlchemy table object to insert into.
+            rows (list[dict]): A list of dictionaries representing the rows to insert.
+        """
         if not rows:
             return
 
@@ -258,6 +269,16 @@ class AgentManager:
 
     @staticmethod
     async def _bulk_insert_pivot_async(session, table, rows: list[dict]):
+        """
+        Asynchronously inserts multiple rows into a pivot/association table.
+
+        See `_bulk_insert_pivot` for implementation details.
+
+        Args:
+            session: The asynchronous SQLAlchemy database session.
+            table: The SQLAlchemy table object to insert into.
+            rows (list[dict]): A list of dictionaries representing the rows to insert.
+        """
         if not rows:
             return
 
@@ -282,8 +303,17 @@ class AgentManager:
     @staticmethod
     def _replace_pivot_rows(session, table, agent_id: str, rows: list[dict]):
         """
-        Replace all pivot rows for an agent with *exactly* the provided list.
-        Uses two bulk statements (DELETE + INSERT ... ON CONFLICT DO NOTHING).
+        Synchronously replaces all pivot rows for an agent with the provided list.
+
+        This is a "hard replace" operation:
+        1. Deletes ALL existing rows in the `table` associated with `agent_id`.
+        2. Inserts the new `rows`.
+
+        Args:
+            session: The SQLAlchemy database session.
+            table: The association table to update.
+            agent_id (str): The ID of the agent whose rows are being replaced.
+            rows (list[dict]): The new list of rows to associate with the agent.
         """
         # delete all existing rows for this agent
         session.execute(delete(table).where(table.c.agent_id == agent_id))
@@ -345,6 +375,30 @@ class AgentManager:
         _init_with_no_messages: bool = False,
         ignore_invalid_tools: bool = False,
     ) -> PydanticAgentState:
+        """
+        Creates a new agent with the specified configuration.
+
+        This method handles the entire agent creation process, including:
+        - Validating and applying LLM configuration (including reasoning models).
+        - Creating initial memory blocks (core memory).
+        - resolving and attaching tools (base tools, multi-agent tools, user-provided tools).
+        - Attaching data sources and tools to the agent.
+        - Persisting the agent state to the database.
+        - Initializing the context window (system message, initial messages).
+
+        Args:
+            agent_create (CreateAgent): Configuration schema for the new agent.
+            actor (PydanticUser): The user creating the agent (used for permissions and ownership).
+            _test_only_force_id (Optional[str]): Force a specific Agent ID (TESTING ONLY).
+            _init_with_no_messages (bool): If True, skips initializing the message history (used for specialized agents).
+            ignore_invalid_tools (bool): If True, logs a warning instead of raising an error when tools are not found.
+
+        Returns:
+            PydanticAgentState: The state of the newly created agent.
+
+        Raises:
+            ValueError: If required configurations (like llm_config) are missing.
+        """
         # validate required configs
         if not agent_create.llm_config:
             raise ValueError("llm_config is required")
@@ -669,6 +723,20 @@ class AgentManager:
     def _generate_initial_message_sequence(
         self, actor: PydanticUser, agent_state: PydanticAgentState, supplied_initial_message_sequence: Optional[List[MessageCreate]] = None
     ) -> List[Message]:
+        """
+        Generates the initial sequence of messages for a new agent.
+
+        This includes the system message, initial boot messages, and any user-supplied
+        start sequence. This is the synchronous version.
+
+        Args:
+            actor (PydanticUser): The user creating the agent.
+            agent_state (PydanticAgentState): The agent's state.
+            supplied_initial_message_sequence (Optional[List[MessageCreate]]): Custom messages to prepend.
+
+        Returns:
+            List[Message]: The list of initial Message objects.
+        """
         init_messages = initialize_message_sequence(
             agent_state=agent_state, memory_edit_timestamp=get_utc_time(), include_initial_boot_message=True
         )
@@ -698,6 +766,19 @@ class AgentManager:
     async def _generate_initial_message_sequence_async(
         self, actor: PydanticUser, agent_state: PydanticAgentState, supplied_initial_message_sequence: Optional[List[MessageCreate]] = None
     ) -> List[Message]:
+        """
+        Asynchronously generates the initial sequence of messages for a new agent.
+
+        See `_generate_initial_message_sequence` for details.
+
+        Args:
+            actor (PydanticUser): The user creating the agent.
+            agent_state (PydanticAgentState): The agent's state.
+            supplied_initial_message_sequence (Optional[List[MessageCreate]]): Custom messages to prepend.
+
+        Returns:
+            List[Message]: The list of initial Message objects.
+        """
         init_messages = await initialize_message_sequence_async(
             agent_state=agent_state, memory_edit_timestamp=get_utc_time(), include_initial_boot_message=True
         )
@@ -728,6 +809,19 @@ class AgentManager:
     async def append_initial_message_sequence_to_in_context_messages_async(
         self, actor: PydanticUser, agent_state: PydanticAgentState, initial_message_sequence: Optional[List[MessageCreate]] = None
     ) -> PydanticAgentState:
+        """
+        Generates the initial message sequence and appends it to the agent's context.
+
+        This is typically called during agent creation or when resetting an agent.
+
+        Args:
+            actor (PydanticUser): The user performing the action.
+            agent_state (PydanticAgentState): The agent to update.
+            initial_message_sequence (Optional[List[MessageCreate]]): Custom messages to append.
+
+        Returns:
+            PydanticAgentState: The updated agent state.
+        """
         init_messages = await self._generate_initial_message_sequence_async(actor, agent_state, initial_message_sequence)
         return await self.append_to_in_context_messages_async(init_messages, agent_id=agent_state.id, actor=actor)
 
@@ -740,6 +834,26 @@ class AgentManager:
         agent_update: UpdateAgent,
         actor: PydanticUser,
     ) -> PydanticAgentState:
+        """
+        Updates an existing agent's configuration and state.
+
+        This method handles partial updates to:
+        - Scalar fields (name, description, system prompt).
+        - LLM configuration (including reasoning settings).
+        - Associated resources (tools, sources, memory blocks, tags).
+        - Environment variables/secrets.
+
+        It efficiently updates the database and pivot tables, ensuring atomic consistency
+        where possible via the `_replace_pivot_rows_async` helpers.
+
+        Args:
+            agent_id (str): The ID of the agent to update.
+            agent_update (UpdateAgent): schema containing fields to update (None fields are ignored).
+            actor (PydanticUser): The user requesting the update (must have write keys).
+
+        Returns:
+            PydanticAgentState: The updated agent state.
+        """
         new_tools = set(agent_update.tool_ids or [])
         # Use folder_ids if provided, otherwise fall back to deprecated source_ids for backwards compatibility
         folder_ids_to_update = agent_update.folder_ids if agent_update.folder_ids is not None else agent_update.source_ids
@@ -914,6 +1028,19 @@ class AgentManager:
         message_ids: List[str],
         actor: PydanticUser,
     ) -> None:
+        """
+        Updates the list of message IDs associated with an agent (the context window).
+
+        This method:
+        1. Fetchs the agent.
+        2. Updates the `message_ids` field.
+        3. Updates the `last_updated_by` and `updated_at` fields.
+
+        Args:
+            agent_id (str): The ID of the agent to update.
+            message_ids (List[str]): The new ordered list of message IDs.
+            actor (PydanticUser): The user performing the update.
+        """
         async with db_registry.async_session() as session:
             query = select(AgentModel)
             query = AgentModel.apply_access_predicate(query, actor, ["read"], AccessType.ORGANIZATION)
@@ -1321,6 +1448,18 @@ class AgentManager:
     @raise_on_invalid_id(param_name="agent_id", expected_prefix=PrimitiveType.AGENT)
     @trace_method
     async def get_in_context_messages(self, agent_id: str, actor: PydanticUser) -> List[PydanticMessage]:
+        """
+        Retrieves the full list of messages currently in the agent's context window.
+
+        This resolves the `message_ids` stored on the agent into full `Message` objects.
+
+        Args:
+            agent_id (str): The ID of the agent.
+            actor (PydanticUser): The user requesting the messages.
+
+        Returns:
+            List[PydanticMessage]: The list of message objects in the agent's context.
+        """
         agent_state = await self.get_agent_by_id_async(agent_id=agent_id, actor=actor)
         return await self.message_manager.get_messages_by_ids_async(message_ids=agent_state.message_ids, actor=actor)
 
@@ -1510,17 +1649,54 @@ class AgentManager:
     @enforce_types
     @trace_method
     def set_in_context_messages(self, agent_id: str, message_ids: List[str], actor: PydanticUser) -> PydanticAgentState:
+        """
+        Updates the agent's context window with a specific list of message IDs.
+
+        This is the synchronous version of `set_in_context_messages_async`.
+
+        Args:
+            agent_id (str): The ID of the agent.
+            message_ids (List[str]): Ordered list of message IDs to set as the context.
+            actor (PydanticUser): The user performing the action.
+
+        Returns:
+            PydanticAgentState: The updated agent state.
+        """
         return self.update_agent(agent_id=agent_id, agent_update=UpdateAgent(message_ids=message_ids), actor=actor)
 
     @enforce_types
     @raise_on_invalid_id(param_name="agent_id", expected_prefix=PrimitiveType.AGENT)
     @trace_method
     async def set_in_context_messages_async(self, agent_id: str, message_ids: List[str], actor: PydanticUser) -> PydanticAgentState:
+        """
+        Asynchronously updates the agent's context window with a specific list of message IDs.
+
+        Args:
+            agent_id (str): The ID of the agent.
+            message_ids (List[str]): Ordered list of message IDs to set as the context.
+            actor (PydanticUser): The user performing the action.
+
+        Returns:
+            PydanticAgentState: The updated agent state.
+        """
         return await self.update_agent_async(agent_id=agent_id, agent_update=UpdateAgent(message_ids=message_ids), actor=actor)
 
     @enforce_types
     @trace_method
     def trim_older_in_context_messages(self, num: int, agent_id: str, actor: PydanticUser) -> PydanticAgentState:
+        """
+        Trims the oldest `num` messages from the agent's context window, preserving the system message.
+
+        The system message (index 0) is always preserved. Trimming starts from index 1.
+
+        Args:
+            num (int): The number of messages to remove from the beginning of the history (after system prompt).
+            agent_id (str): The ID of the agent.
+            actor (PydanticUser): The user performing the action.
+
+        Returns:
+            PydanticAgentState: The updated agent state.
+        """
         message_ids = self.get_agent_by_id(agent_id=agent_id, actor=actor).message_ids
         new_messages = [message_ids[0]] + message_ids[num:]  # 0 is system message
         return self.set_in_context_messages(agent_id=agent_id, message_ids=new_messages, actor=actor)
@@ -1528,6 +1704,16 @@ class AgentManager:
     @enforce_types
     @trace_method
     def trim_all_in_context_messages_except_system(self, agent_id: str, actor: PydanticUser) -> PydanticAgentState:
+        """
+        Removes ALL messages from the context window except for the system message.
+
+        Args:
+            agent_id (str): The ID of the agent.
+            actor (PydanticUser): The user performing the action.
+
+        Returns:
+            PydanticAgentState: The updated agent state.
+        """
         message_ids = self.get_agent_by_id(agent_id=agent_id, actor=actor).message_ids
         # TODO: How do we know this?
         new_messages = [message_ids[0]]  # 0 is system message
@@ -2933,6 +3119,15 @@ class AgentManager:
     @raise_on_invalid_id(param_name="agent_id", expected_prefix=PrimitiveType.AGENT)
     @trace_method
     async def modify_approvals_async(self, agent_id: str, tool_name: str, requires_approval: bool, actor: PydanticUser) -> None:
+        """
+        Modifies the approval requirement for a specific tool on an agent.
+
+        Args:
+            agent_id: The ID of the agent.
+            tool_name: The name of the tool.
+            requires_approval: Whether the tool requires human approval.
+            actor: The user performing the action.
+        """
         def is_target_rule(rule):
             return rule.tool_name == tool_name and rule.type == "requires_approval"
 
@@ -3430,6 +3625,22 @@ class AgentManager:
     @raise_on_invalid_id(param_name="agent_id", expected_prefix=PrimitiveType.AGENT)
     @trace_method
     async def get_context_window(self, agent_id: str, actor: PydanticUser, conversation_id: Optional[str] = None) -> ContextWindowOverview:
+        """
+        Calculates the context window usage for an agent.
+
+        This method:
+        1. Compiles the system message (including memory).
+        2. Retrieves the message history (either for the agent or a specific conversation).
+        3. Uses a token counter to calculate token usage for system, memory, and messages.
+
+        Args:
+            agent_id: The ID of the agent.
+            actor: The user requesting the information.
+            conversation_id: Optional conversation to calculate context for. If None, uses the agent's current message history.
+
+        Returns:
+            ContextWindowOverview: A breakdown of token usage in the context window.
+        """
         agent_state, system_message, num_messages, num_archival_memories = await self.rebuild_system_prompt_async(
             agent_id=agent_id, actor=actor, force=True, dry_run=True
         )

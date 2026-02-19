@@ -857,6 +857,8 @@ class MessageManager:
 
     @enforce_types
     @trace_method
+    @enforce_types
+    @trace_method
     async def list_user_messages_for_agent_async(
         self,
         agent_id: str,
@@ -868,6 +870,24 @@ class MessageManager:
         ascending: bool = True,
         run_id: Optional[str] = None,
     ) -> List[PydanticMessage]:
+        """
+        Lists only user messages for a specific agent.
+
+        This is a convenience wrapper around `list_messages` that sets `roles=[MessageRole.user]`.
+
+        Args:
+            agent_id (str): The ID of the agent.
+            actor (PydanticUser): The user requesting the messages.
+            after (Optional[str]): Pagination cursor (return messages after this ID).
+            before (Optional[str]): Pagination cursor (return messages before this ID).
+            query_text (Optional[str]): Filter by text content.
+            limit (Optional[int]): Maximum number of messages to return.
+            ascending (bool): Sort order.
+            run_id (Optional[str]): Filter by run ID.
+
+        Returns:
+            List[PydanticMessage]: List of user messages.
+        """
         return await self.list_messages(
             agent_id=agent_id,
             actor=actor,
@@ -1025,13 +1045,25 @@ class MessageManager:
 
     @enforce_types
     @trace_method
+    @enforce_types
+    @trace_method
     async def delete_all_messages_for_agent_async(
         self, agent_id: str, actor: PydanticUser, exclude_ids: Optional[List[str]] = None, strict_mode: bool = False
     ) -> int:
         """
-        Efficiently deletes all messages associated with a given agent_id,
-        while enforcing permission checks and avoiding any ORM‑level loads.
-        Optionally excludes specific message IDs from deletion.
+        Efficiently deletes all messages associated with a given agent_id.
+
+        Enforces permission checks and avoids loading all objects into memory by using a
+        Core Delete statement. Also handles deletion from Turbopuffer if enabled.
+
+        Args:
+            agent_id (str): The ID of the agent.
+            actor (PydanticUser): The user performing the deletion.
+            exclude_ids (Optional[List[str]]): A list of message IDs to exclude from deletion.
+            strict_mode (bool): If True, raises exceptions from Turbopuffer deletion failures.
+
+        Returns:
+            int: The number of messages deleted from the database.
         """
         rowcount = 0
         async with db_registry.async_session() as session:
@@ -1074,11 +1106,24 @@ class MessageManager:
 
     @enforce_types
     @trace_method
+    @enforce_types
+    @trace_method
     async def delete_messages_by_ids_async(self, message_ids: List[str], actor: PydanticUser, strict_mode: bool = False) -> int:
         """
-        Efficiently deletes messages by their specific IDs,
-        while enforcing permission checks.
+        Efficiently deletes messages by their specific IDs.
+
+        Enforces permission checks (user must own the organization of the messages).
+        also handles deletion from Turbopuffer if enabled.
+
+        Args:
+            message_ids (List[str]): List of message IDs to delete.
+            actor (PydanticUser): The user performing the deletion.
+            strict_mode (bool): If True, raises exceptions from Turbopuffer deletion failures.
+
+        Returns:
+            int: The number of messages deleted from the database.
         """
+
         if not message_ids:
             return 0
 
